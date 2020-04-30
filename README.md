@@ -1,6 +1,6 @@
 # Deep Zoom Debugger
 
-This is a PoC for a zoom-based debugger.
+This is a PoC for a zoom-based debugger based on the [Play Programming Language](https://github.com/airportyh/play-lang).
 
 ## The Making Of
 
