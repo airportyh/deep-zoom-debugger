@@ -6,6 +6,8 @@ This is a PoC for a zoom-based debugger based on the [Play Programming Language]
 
 I have documented the work on this debugger as a [video series](https://www.youtube.com/watch?v=kzrWQt__R8Q&list=PLSq9OFrD2Q3Bp9T2SiAAxOF60VSbGAtHn).
 
+Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube.com/watch?v=pXQTNxPharY&t) for more background.
+
 ## Todo
 
 * fix fib(0) and fib(1) not rendering in detail mode
