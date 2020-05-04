@@ -1,13 +1,13 @@
 import * as jsonr from "@airportyh/jsonr";
 import { parse } from "play-lang/src/parser";
 import { traverse } from "play-lang/src/traverser";
-import { fitBox, Box, BoundingBox, TextBox } from "./fit-box";
+import { fitBox, Box, BoundingBox, TextBox, TextMeasurer } from "./fit-box";
 
 const CODE_LINE_HEIGHT = 42;
 const CODE_FONT_SIZE = 36;
 const CODE_FONT_FAMILY = "Monaco";
 
-type StackFrames = {
+type StackFrame = {
     funName: string,
     parameters: { [paramName: string]: any },
     variables:  { [varName: string]: any }
@@ -15,7 +15,7 @@ type StackFrames = {
 
 type HistoryEntry = {
     line: number,
-    stack: StackFrames[],
+    stack: StackFrame[],
     heap: { [id: number]: any }
 };
 
@@ -24,6 +24,9 @@ async function main() {
     let dragStartX: number;
     let dragStartY: number;
     const canvas = document.createElement("canvas");
+    const log = document.createElement("pre");
+    log.style.position = "absolute";
+    log.style.bottom = "1px";
 
     canvas.width = 1200;
     canvas.height = 1200;
@@ -34,10 +37,14 @@ async function main() {
         top: - canvas.height / 2,
         left: - canvas.width / 2,
         zoom: 0.5
+        /*left: 899.2,
+        top: 154.122,
+        zoom: 137.39*/
     };
     const ctx = canvas.getContext("2d");
 
     document.body.appendChild(canvas);
+    document.body.appendChild(log);
     
     window.addEventListener("mousedown", (e: MouseEvent) => {
         dragging = true;
@@ -109,6 +116,114 @@ async function main() {
     const historyText = await fetchText("fib-recurse.history");
     const history: HistoryEntry[] = jsonr.parse(historyText);
     ctx.textBaseline = "top";
+    const textMeasurer = new TextMeasurer(ctx, true);
+    
+    /*
+    const outerBox = {
+        "type": "container",
+        "direction": "horizontal",
+        "children": [
+          {
+            "type": "container",
+            "direction": "vertical",
+            "children": [
+              {
+                "type": "text",
+                "text": "13"
+              },
+              {
+                "type": "text",
+                "text": "14"
+              },
+              {
+                "type": "text",
+                "text": "15"
+              }
+            ]
+          },
+          {
+            "type": "container",
+            "direction": "vertical",
+            "children": [
+              {
+                "type": "text",
+                "text": "def main() ["
+              },
+              {
+                "type": "container",
+                "direction": "horizontal",
+                "children": [
+                  {
+                    "type": "text",
+                    "text": "    print("
+                  },
+                  {
+                    "type": "text",
+                    "text": "fib(7)"
+                  },
+                  {
+                    "type": "text",
+                    "text": ")"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "]"
+              }
+            ]
+          }
+        ]
+      }
+    const badBox = {
+      "y": -14534.526716351218,
+      "x": -85603.17608775802,
+      "width": 114249.68877494133,
+      "height": 114249.68877494133
+    };
+    const goodBox = {
+      "y": -14416.323159448202,
+      "x": -84930.3908746029,
+      "width": 113358.67199774715,
+      "height": 113358.67199774715
+    };
+    */
+    /*
+    for (let i = 5; i < 12000; i += 5) {
+        ctx.font = `normal ${i}px ${CODE_FONT_FAMILY}`;
+        console.log(`${i}px`, ctx.measureText("d").width);
+    }
+    */
+    
+    /*
+    
+    ctx.font = `normal 110px ${CODE_FONT_FAMILY}`;
+    const str = "d";
+    console.log(ctx.measureText(str).width);
+    console.log(ctx.measureText(" ").width * str.length);
+    */
+    /*
+    const result = fitBox(outerBox as any, goodBox as any, CODE_FONT_FAMILY, "normal",
+    ctx);
+    console.log(result);
+    */
+    /*
+    const screenBox = boxWorldToCanvas({
+        x: 0, y: 0,
+        width: 1200, height: 1200
+    });
+    const text: Box = { type: "text", text: "Hello, world" };
+    console.log("screenBox", screenBox);
+    const bboxMap = fitBox(
+        text,
+        screenBox,
+        CODE_FONT_FAMILY,
+        "normal",
+        ctx
+    );
+    */
+    
+    
     
     requestRender();
 
@@ -116,12 +231,27 @@ async function main() {
         requestAnimationFrame(render);
     }
     
-    function renderFrameEntries(entries: HistoryEntry[], myBox: BoundingBox) {
+    function renderFrameEntries(entries: HistoryEntry[], myBox: BoundingBox, level: number) {
+        const indent = Array(level + 1).join("  ");
         ctx.clearRect(myBox.x, myBox.y, myBox.width, myBox.height);
         const myArea = myBox.width * myBox.height;
         const myAreaRatio = myArea / (canvas.width * canvas.height);
         const firstEntry = entries[0];
+        const stackFrame = firstEntry.stack[firstEntry.stack.length - 1];
+        /*console.log(
+            indent + "renderFrameEntries", 
+            level,
+            entries.length, 
+            stackFrame.funName, 
+            "(" + 
+                Object.keys(stackFrame.parameters).map(key => `${key}=${stackFrame.parameters[key]}`).join(", ") +
+            ")",
+            //"myBox", myBox
+        );
+        */
+        
         const currentStackHeight = firstEntry.stack.length;
+        // Assumes that one line can only contain one function call
         const nestExecution: { [line: number]: HistoryEntry[] } = {};
         const entriesThisFrame = [];
         //entries.filter(entry => entry.stack.length === currentStackHeight);
@@ -145,20 +275,26 @@ async function main() {
         //console.log("nestedExecution", nestExecution);
         
         if (myAreaRatio < 0.5) {
+            //console.log(indent + "myAreaRatio < 0.5");
             const stack = firstEntry.stack[firstEntry.stack.length - 1];
             const funName = stack.funName;
-            const paramList = "(" + Object.values(stack.parameters).join(", ") + ")"
-            fitBox(
-                {
-                    type: "text",
-                    text: funName + paramList
-                }, 
+            const paramList = "(" + Object.values(stack.parameters).join(", ") + ")";
+            const textBox: TextBox = {
+                type: "text",
+                text: funName + paramList
+            };
+            const bboxMap = fitBox(
+                textBox, 
                 myBox,
-                CODE_FONT_FAMILY, "normal",
+                CODE_FONT_FAMILY, 
+                "normal",
+                true,
+                textMeasurer,
                 ctx
             );
-        } else {
             
+        } else {
+            //console.log(indent + "myAreaRatio >= 0.5");
             const outerBox: Box = {
                 type: "container",
                 direction: "horizontal",
@@ -180,7 +316,7 @@ async function main() {
             
             
             const codeLines = code.split("\n");
-            const callExprsBoxes = [];
+            const callExprsBoxes: Array<{ expr: any /* AST node */, box: TextBox }> = [];
             
             // Render first line of function definition
             const stack = firstEntry.stack[firstEntry.stack.length - 1];
@@ -204,7 +340,6 @@ async function main() {
                 text: codeLine
             });
             
-            console.log("entriesThisFrame", entriesThisFrame);
             for (let i = 0; i < entriesThisFrame.length; i++) {
                 let outputLine = "";
                 const entry = entriesThisFrame[i];
@@ -259,7 +394,32 @@ async function main() {
                 }
             }
             
-            const bboxMap = fitBox(outerBox, myBox, CODE_FONT_FAMILY, "normal", ctx);
+        
+            const bboxMap = fitBox(outerBox, myBox, CODE_FONT_FAMILY, "normal", true, textMeasurer, ctx);
+            /*
+            
+            Code trying to implement current scope
+            let newCurrentScope, newCurrentScopeBBox;
+            for (let callExprsBox of callExprsBoxes) {
+                const textBox = callExprsBox.box;
+                const bbox = bboxMap.get(textBox);
+                const containsViewPort = bbox.x <= 0 && bbox.y <= 0 &&
+                    (bbox.width - 1200 >= 0) && (bbox.height - 1200 >= 0);
+                if (containsViewPort) {
+                    newCurrentScope = callExprsBox;
+                    newCurrentScopeBBox = bbox;
+                    break;
+                }
+            }
+            if (newCurrentScope) {
+                console.log("Found sub current scope!", newCurrentScope.box);
+            } else {
+                console.log("No sub current scope found");
+            }
+            */
+            
+            
+            //console.log(indent + "outerBox", outerBox, "myBox", myBox, "bboxMap", bboxMap);
             for (let callExprBox of callExprsBoxes) {
                 const { expr, box } = callExprBox;
                 const bbox = bboxMap.get(box);
@@ -267,13 +427,34 @@ async function main() {
                 const frameEntries = nestExecution[expr.start.line];
                 if (frameEntries) {
                     //console.log("rendering frame entries!!!");
-                    renderFrameEntries(frameEntries, bbox);
+                    renderFrameEntries(frameEntries, bbox, level + 1);
                 }
             }
         }
     }
     
+    function updateLog() {
+        return;
+        const width = canvas.width / viewport.zoom;
+        const height = canvas.height / viewport.zoom;
+        const box: BoundingBox = {
+            y: 0,
+            x: 0,
+            width: canvas.width,
+            height: canvas.height
+        };
+        const myBox = boxWorldToCanvas(box);
+        const display = 
+            `Left: ${viewport.left.toFixed(2)}, Top: ${viewport.top.toFixed(2)}, Zoom: ${viewport.zoom.toFixed(2)}, Width: ${width.toFixed(2)}, Height: ${height.toFixed(2)} <br>` +
+            `World box: (X: ${myBox.x.toFixed(2)}, Y: ${myBox.y.toFixed(2)}, Width: ${myBox.width.toFixed(2)}, Height: ${myBox.height.toFixed(2)})`;
+        
+        log.innerHTML = display;
+    }
+    
     function render() {
+        updateLog();
+        //console.log("render");
+        
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const box: BoundingBox = {
             y: 0,
@@ -282,183 +463,12 @@ async function main() {
             height: canvas.height
         };
         const myBox = boxWorldToCanvas(box);
+        //console.log("canvas coordinate", myBox);
         ctx.strokeRect(myBox.x, myBox.y, myBox.width, myBox.height);
         
-        renderFrameEntries(history, myBox);
+        renderFrameEntries(history, myBox, 0);
         
-        /*
-        const myArea = myBox.width * myBox.height;
-        const myAreaRatio = myArea / (canvas.width * canvas.height);
-        const entries = history;
-        const firstEntry = entries[0];
-        const currentStackHeight = firstEntry.stack.length;
-        const entriesThisFrame = entries.filter(entry => entry.stack.length === currentStackHeight);
-        
-        if (myAreaRatio < 0.5) {
-            const funName = firstEntry.stack[0].funName;
-            fitBox(
-                {
-                    type: "text",
-                    text: funName + "()"
-                }, 
-                myBox,
-                CODE_FONT_FAMILY, "normal",
-                ctx
-            );
-        } else {
-            
-            const outerBox: Box = {
-                type: "container",
-                direction: "horizontal",
-                children: []
-            };
-            const lineNumberBox: Box = {
-                type: "container",
-                direction: "vertical",
-                children: []
-            };
-            outerBox.children.push(lineNumberBox);
-            
-            const codeBox: Box = {
-                type: "container",
-                direction: "vertical",
-                children: []
-            }
-            outerBox.children.push(codeBox);
-            
-            
-            const codeLines = code.split("\n");
-            const callExprsBoxes = [];
-            
-            // Render first line of function definition
-            const funName = firstEntry.stack[0].funName;
-            const funNode = findFunction(funName);
-            const callExprs = findCallExpressions(funNode);
-            const userDefinedFunctions = findFunctionDefinitions(ast);
-            const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
-            const callExprsUser = callExprs.filter(expr => {
-                return userDefinedFunctionNames.includes(expr.fun_name.value);
-            });
-            const lineNo = funNode.start.line;
-            const line = codeLines[lineNo - 1];
-            lineNumberBox.children.push({
-                type: "text",
-                text: String(lineNo)
-            });
-            const codeLine = codeLines[lineNo - 1];
-            codeBox.children.push({
-                type: "text",
-                text: codeLine
-            });
-            
-            for (let i = 0; i < entriesThisFrame.length; i++) {
-                let outputLine = "";
-                const entry = entriesThisFrame[i];
-                const nextEntry = entriesThisFrame[i + 1];
-                const lineNo = entry.line;
-                if (nextEntry && entry.line === nextEntry.line) {
-                    continue;
-                }
-                lineNumberBox.children.push({
-                    type: "text",
-                    text: String(lineNo)
-                });
-                
-                const codeLine = codeLines[lineNo - 1];
-                // TODO: handle multiple call exprs on same line
-                const callExpr = callExprsUser.find(expr => {
-                    return expr.start.line === lineNo
-                });
-                if (callExpr) {
-                    const firstChunk = codeLine.slice(0, callExpr.start.col);
-                    const secondChunk = codeLine.slice(callExpr.start.col, callExpr.end.col);
-                    const thirdChunk = codeLine.slice(callExpr.end.col);
-                    const callExprBox: TextBox = {
-                        type: "text",
-                        text: secondChunk
-                    };
-                    callExprsBoxes.push({
-                        expr: callExpr,
-                        box: callExprBox
-                    });
-                    const lineBox: Box = {
-                        type: "container",
-                        direction: "horizontal",
-                        children: [
-                            {
-                                type: "text",
-                                text: firstChunk
-                            },
-                            callExprBox,
-                            {
-                                type: "text",
-                                text: thirdChunk
-                            }
-                        ]
-                    };
-                    codeBox.children.push(lineBox);
-                } else {
-                    codeBox.children.push({
-                        type: "text",
-                        text: codeLine
-                    });
-                }
-            }
-            
-            const bboxMap = fitBox(outerBox, myBox, CODE_FONT_FAMILY, "normal", ctx);
-            for (let callExprBox of callExprsBoxes) {
-                const { expr, box } = callExprBox;
-                const bbox = bboxMap.get(box);
-                // console.log("second pass render", { expr, box, bbox });
-            }
-            
-            
-        }
-        */
-        
-        
-        
-        /*
-        const funName = firstEntry.stack[0].funName;
-        const funNode = findFunction(funName);
-        const lineNo = funNode.start.line;
-        const line = codeLines[lineNo - 1];
-        const longestLineLength = entriesThisFrame.reduce((longestLength, entry) => {
-            const lineNo = entry.line;
-            const line = codeLines[lineNo - 1];
-            if (line.length > longestLength) {
-                return line.length;
-            } else {
-                return longestLength;
-            }
-        }, 0);
-        outputLines.push(String(lineNo).padEnd(5, " ") + line);
-        
-        for (let i = 0; i < entriesThisFrame.length; i++) {
-            let outputLine = "";
-            const entry = entriesThisFrame[i];
-            const nextEntry = entriesThisFrame[i + 1];
-            if (nextEntry && entry.line === nextEntry.line) {
-                continue;
-            }
-            const lineNo = entry.line;
-            const line = codeLines[lineNo - 1];
-            outputLine += String(lineNo).padEnd(5, " ") + line.padEnd(longestLineLength + 5, " ");
-            
-            // render var value if line is a var_assignment
-            const astNode = findLine(lineNo);
-            if (astNode && astNode.type === "var_assignment" && nextEntry) {
-                const varName = astNode.var_name.value;
-                const frame = nextEntry.stack[nextEntry.stack.length - 1];
-                const varValue = frame.variables[varName];
-                outputLine += `${varName} = ${varValue}`;
-            }
-            outputLines.push(outputLine);
-        }
-        
-        const output = outputLines.join("\n");
-        fitText(ctx, output, CODE_FONT_FAMILY, "normal", myBox, textMeasurer);
-        */
+        //console.log("render complete");
     }
     
     function findLine(lineNo) {

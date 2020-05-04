@@ -1,3 +1,5 @@
+import { sleep } from "simple-sleep";
+
 /*
 A bounding box is an rectangular area in a 2D canvas.
 */
@@ -39,6 +41,64 @@ export type Point = {
     x: number;
 }
 
+export type FontSetting = {
+    size: number,
+    family: string,
+    weight: string
+};
+
+export class TextMeasurer {
+    widthTable: { [key: string]: number } = {};
+    ctx: CanvasRenderingContext2D;
+    font: string;
+    fontSetting: FontSetting;
+    fixedWidthFontRatio: { [key: string]: number } = {};
+    constructor(ctx: CanvasRenderingContext2D, private fixedWidth: boolean) {
+        this.ctx = ctx;
+    }
+    
+    setFont(fontSetting: FontSetting) {
+        this.fontSetting = fontSetting;
+        this.font = `${fontSetting.weight} ${fontSetting.size}px ${fontSetting.family}`;
+        if (this.fixedWidth) {
+            this.font = `${fontSetting.weight} ${fontSetting.size}px ${fontSetting.family}`;
+            const key = `${fontSetting.weight}-${fontSetting.family}`;
+            if (!(key in this.fixedWidthFontRatio)) {
+                this.ctx.font = `${fontSetting.weight} 10px ${fontSetting.family}`;
+                const ratio = this.ctx.measureText("i").width / 10;
+                this.fixedWidthFontRatio[key] = ratio;
+            }
+        } else {
+            this.ctx.font = this.font;
+        }
+    }
+
+    measureText(text: string): number {
+        if (this.fixedWidth) {
+            const ratio = this.fixedWidthFontRatio[`${this.fontSetting.weight}-${this.fontSetting.family}`];
+            return text.length * ratio * this.fontSetting.size;
+        } else {
+            let totalWidth = 0;
+            for (let chr of text) {
+                const chrKey = chr + this.font;
+                let width = this.widthTable[chrKey];
+                if (!width) {
+                    width = this.ctx.measureText(chr).width;
+                    this.widthTable[chrKey] = width;
+                }
+                totalWidth += width;
+            }
+            
+            let width = totalWidth;
+            if (this.fontSetting.size > 10000) {
+                width = width * (this.fontSetting.size / 10000);
+            }
+            return width;
+        }
+    }
+}
+
+
 /*
 Entry point of the fit box algorithm. Given a box to calculate the layout for,
 bounding box to fit the box within, a specificed font family and font weight,
@@ -49,7 +109,9 @@ export function fitBox(
     box: Box,
     bbox: BoundingBox,
     fontFamily: string,
-    fontWeight: string = "normal",
+    fontWeight: string,
+    fixedWidth: boolean,
+    textMeasurer: TextMeasurer,
     ctx: CanvasRenderingContext2D
 ) {
     let lowerFontSize: null | number = null;
@@ -57,20 +119,28 @@ export function fitBox(
     let fontSize = 5;
     let height: number, width: number;
     let bboxMap;
-    
     ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
     while (true) {
-    
-        ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-        bboxMap = layout(box, { x: bbox.x, y: bbox.y }, fontSize, ctx);
+        if (fontSize === 0) {
+            throw new Error("Unexpected condition");
+        }
+        //console.log(`Trying fontSize: ${fontSize}`);
+        textMeasurer.setFont({
+            weight: fontWeight,
+            size: fontSize,
+            family: fontFamily
+        });
+        bboxMap = layout(box, { x: bbox.x, y: bbox.y }, fontSize, textMeasurer);
         const myBBox = bboxMap.get(box);
         const allFit = myBBox.height <= bbox.height && myBBox.width <= bbox.width;
         
         if (allFit) {
+            //console.log("All fit");
             lowerFontSize = fontSize;
             if (upperFontSize) {
                 const newFontSize = Math.floor((upperFontSize + fontSize) / 2);
                 if (newFontSize === fontSize) {
+                    //console.log("Break out of loop");
                     break;
                 }
                 fontSize = newFontSize;
@@ -78,6 +148,7 @@ export function fitBox(
                 fontSize *= 2;
             }
         } else {
+            //console.log("Didn't fit");
             upperFontSize = fontSize;
             if (lowerFontSize) {
                 const newFontSize = Math.floor((lowerFontSize + fontSize) / 2);
@@ -91,6 +162,8 @@ export function fitBox(
         }
     }
     
+    //console.log("font size:", fontSize);
+    ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
     render(box, bboxMap, ctx);
     return bboxMap;
 }
@@ -104,14 +177,16 @@ export function layout(
     box: Box, 
     offset: Point,
     fontSize: number,
-    ctx: CanvasRenderingContext2D):
+    textMeasurer: TextMeasurer):
     Map<Box, BoundingBox> {
     if (box.type === "text") {
-        const width = ctx.measureText(box.text).width;
+        
+        let width = textMeasurer.measureText(box.text);
+        //console.log("measureText:", box.text, fontSize, "=", width);
         const height = fontSize;
         const bbox: BoundingBox = {
             ...offset,
-            width,
+            width: width,
             height
         };
         return new Map([[box, bbox]]);
@@ -126,10 +201,14 @@ export function layout(
                     child, 
                     { x: offset.x, y: yOffset }, 
                     fontSize, 
-                    ctx);
+                    textMeasurer);
                 entries.push(...bboxMap);
                 const childBBox = bboxMap.get(child);
+                let previousYOffset = yOffset;
                 yOffset += childBBox.height;
+                if (previousYOffset >= 0 && yOffset < 0) {
+                    throw new Error(`Number wrapped around: ${previousYOffset}, ${childBBox.height}, ${yOffset}`);
+                }
                 myHeight += childBBox.height;
                 if (childBBox.width > myWidth) {
                     myWidth = childBBox.width;
@@ -152,10 +231,14 @@ export function layout(
                     child, 
                     { x: xOffset, y: offset.y }, 
                     fontSize, 
-                    ctx);
+                    textMeasurer);
                 entries.push(...bboxMap);
                 const childBBox = bboxMap.get(child);
+                let previousXOffset = xOffset;
                 xOffset += childBBox.width;
+                if (previousXOffset >= 0 && xOffset < 0) {
+                    throw new Error(`Number wrapped around: ${previousXOffset}, ${childBBox.width}, ${xOffset}`);
+                }
                 myWidth += childBBox.width;
                 if (childBBox.height > myHeight) {
                     myHeight = childBBox.height;
@@ -189,6 +272,7 @@ export function render(
     {
     if (box.type === "text") {
         const bbox = bBoxMap.get(box);
+        // console.log(`fillText(${box.text}, ${bbox.x}, ${bbox.y}`);
         ctx.fillText(box.text, bbox.x, bbox.y);
         strokeBBox(bbox, ctx);
     } else if (box.type === "container") {

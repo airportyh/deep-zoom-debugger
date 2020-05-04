@@ -10,8 +10,7 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 
 ## Todo
 
-* fix fib(0) and fib(1) not rendering in detail mode
-* performance problems
+* performance problems(did some, have more to work on)
 * add inlined values display (including return values)
 * display the skipped line in a different color
 * debug fib-loops.play
@@ -19,3 +18,4 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 * make it not rewrite the function calls by replacing the arguments with concrete values
 * how to remove jiggling? (artifact of the fit text/fit box algorithms)
 * make it work for multiple call expressions on a single line
+* fix zoom in around level 4 not rendering in detail mode(done)
