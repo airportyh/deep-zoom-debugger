@@ -1,7 +1,7 @@
 import * as jsonr from "@airportyh/jsonr";
 import { parse } from "play-lang/src/parser";
 import { traverse } from "play-lang/src/traverser";
-import { fitBox, Box, BoundingBox, TextBox, TextMeasurer } from "./fit-box";
+import { fitBox, Box, BoundingBox, TextBox, ContainerBox, TextMeasurer } from "./fit-box";
 
 const CODE_LINE_HEIGHT = 42;
 const CODE_FONT_SIZE = 36;
@@ -17,6 +17,11 @@ type HistoryEntry = {
     line: number,
     stack: StackFrame[],
     heap: { [id: number]: any }
+};
+
+type Scope = {
+    bbox: BoundingBox,
+    historyEntries: HistoryEntry[]
 };
 
 async function main() {
@@ -37,14 +42,33 @@ async function main() {
         top: - canvas.height / 2,
         left: - canvas.width / 2,
         zoom: 0.5
-        /*left: 899.2,
-        top: 154.122,
-        zoom: 137.39*/
     };
+    
+    let currentScopeChain: Scope[];
+    
     const ctx = canvas.getContext("2d");
 
     document.body.appendChild(canvas);
     document.body.appendChild(log);
+    
+    const code = await fetchText("fib-recurse.play");
+    const ast = parse(code);
+    const historyText = await fetchText("fib-recurse.history");
+    const history: HistoryEntry[] = jsonr.parse(historyText);
+    ctx.textBaseline = "top";
+    const textMeasurer = new TextMeasurer(ctx, true);
+    
+    currentScopeChain = [{
+        bbox: {
+            y: 0,
+            x: 0,
+            width: canvas.width,
+            height: canvas.height
+        },
+        historyEntries: history
+    }];
+
+    requestRender();
     
     window.addEventListener("mousedown", (e: MouseEvent) => {
         dragging = true;
@@ -87,195 +111,38 @@ async function main() {
         requestRender();
       }, { passive: false });
 
-    function pointScreenToCanvas(e: MouseEvent): [number, number] {
-        return [
-            (e.clientX - canvas.offsetLeft - 1) * 2,
-            (e.clientY - canvas.offsetTop - 1) * 2
-        ];
-    }
-    
-    function pointCanvasToWorld(x: number, y: number): [number, number] {
-        return [
-            x / viewport.zoom + viewport.left,
-            y / viewport.zoom + viewport.top
-        ];
-    }
-
-    function boxWorldToCanvas(box: BoundingBox): BoundingBox {
-        return {
-            y: (box.y - viewport.top) * viewport.zoom,
-            x: (box.x - viewport.left) * viewport.zoom,
-            width: box.width * viewport.zoom,
-            height: box.height * viewport.zoom
-        };
-    }
-    
-    
-    const code = await fetchText("fib-recurse.play");
-    const ast = parse(code);
-    const historyText = await fetchText("fib-recurse.history");
-    const history: HistoryEntry[] = jsonr.parse(historyText);
-    ctx.textBaseline = "top";
-    const textMeasurer = new TextMeasurer(ctx, true);
-    
-    /*
-    const outerBox = {
-        "type": "container",
-        "direction": "horizontal",
-        "children": [
-          {
-            "type": "container",
-            "direction": "vertical",
-            "children": [
-              {
-                "type": "text",
-                "text": "13"
-              },
-              {
-                "type": "text",
-                "text": "14"
-              },
-              {
-                "type": "text",
-                "text": "15"
-              }
-            ]
-          },
-          {
-            "type": "container",
-            "direction": "vertical",
-            "children": [
-              {
-                "type": "text",
-                "text": "def main() ["
-              },
-              {
-                "type": "container",
-                "direction": "horizontal",
-                "children": [
-                  {
-                    "type": "text",
-                    "text": "    print("
-                  },
-                  {
-                    "type": "text",
-                    "text": "fib(7)"
-                  },
-                  {
-                    "type": "text",
-                    "text": ")"
-                  }
-                ]
-              },
-              {
-                "type": "text",
-                "text": "]"
-              }
-            ]
-          }
-        ]
-      }
-    const badBox = {
-      "y": -14534.526716351218,
-      "x": -85603.17608775802,
-      "width": 114249.68877494133,
-      "height": 114249.68877494133
-    };
-    const goodBox = {
-      "y": -14416.323159448202,
-      "x": -84930.3908746029,
-      "width": 113358.67199774715,
-      "height": 113358.67199774715
-    };
-    */
-    /*
-    for (let i = 5; i < 12000; i += 5) {
-        ctx.font = `normal ${i}px ${CODE_FONT_FAMILY}`;
-        console.log(`${i}px`, ctx.measureText("d").width);
-    }
-    */
-    
-    /*
-    
-    ctx.font = `normal 110px ${CODE_FONT_FAMILY}`;
-    const str = "d";
-    console.log(ctx.measureText(str).width);
-    console.log(ctx.measureText(" ").width * str.length);
-    */
-    /*
-    const result = fitBox(outerBox as any, goodBox as any, CODE_FONT_FAMILY, "normal",
-    ctx);
-    console.log(result);
-    */
-    /*
-    const screenBox = boxWorldToCanvas({
-        x: 0, y: 0,
-        width: 1200, height: 1200
-    });
-    const text: Box = { type: "text", text: "Hello, world" };
-    console.log("screenBox", screenBox);
-    const bboxMap = fitBox(
-        text,
-        screenBox,
-        CODE_FONT_FAMILY,
-        "normal",
-        ctx
-    );
-    */
-    
-    
-    
-    requestRender();
-
     function requestRender() {
         requestAnimationFrame(render);
     }
     
-    function renderFrameEntries(entries: HistoryEntry[], myBox: BoundingBox, level: number) {
+    // Assumes that one line can only contain one function call
+    function renderScope(scope: Scope, ancestry: Scope[]): Scope[] {
+        const entries = scope.historyEntries;
+        const bbox = scope.bbox;
+        const level = ancestry.length;
         const indent = Array(level + 1).join("  ");
-        ctx.clearRect(myBox.x, myBox.y, myBox.width, myBox.height);
-        const myArea = myBox.width * myBox.height;
+        const myArea = bbox.width * bbox.height;
         const myAreaRatio = myArea / (canvas.width * canvas.height);
         const firstEntry = entries[0];
-        const stackFrame = firstEntry.stack[firstEntry.stack.length - 1];
+        const myScope: Scope = {
+            bbox: boxCanvasToWorld(bbox),
+            historyEntries: entries
+        };
+        
+        ctx.clearRect(bbox.x, bbox.y, bbox.width, bbox.height);
+        
         /*console.log(
-            indent + "renderFrameEntries", 
+            indent + "renderScope", 
             level,
             entries.length, 
-            stackFrame.funName, 
-            "(" + 
-                Object.keys(stackFrame.parameters).map(key => `${key}=${stackFrame.parameters[key]}`).join(", ") +
-            ")",
-            //"myBox", myBox
-        );
-        */
+            scopeId(myScope),
+            //"bbox", bbox
+        );*/
         
-        const currentStackHeight = firstEntry.stack.length;
-        // Assumes that one line can only contain one function call
-        const nestExecution: { [line: number]: HistoryEntry[] } = {};
-        const entriesThisFrame = [];
-        //entries.filter(entry => entry.stack.length === currentStackHeight);
-        for (let entry of entries) {
-            if (entry.stack.length === currentStackHeight) {
-                entriesThisFrame.push(entry);
-            } else {
-                const lastEntryThisFrame = entriesThisFrame[entriesThisFrame.length - 1];
-                const lineNo = lastEntryThisFrame.line;
-                if (!nestExecution[lineNo]) {
-                    nestExecution[lineNo] = [];
-                }
-                nestExecution[lineNo].push(entry);
-            }
-        }
-        
-        //console.log("renderFrameEntries for", 
-        //    firstEntry.stack[firstEntry.stack.length - 1].funName);
-        
-        
-        //console.log("nestedExecution", nestExecution);
+        const { currentEntries, childEntries } = groupHistoryEntries(entries);
         
         if (myAreaRatio < 0.5) {
-            //console.log(indent + "myAreaRatio < 0.5");
+            // not rendering children
             const stack = firstEntry.stack[firstEntry.stack.length - 1];
             const funName = stack.funName;
             const paramList = "(" + Object.values(stack.parameters).join(", ") + ")";
@@ -283,154 +150,179 @@ async function main() {
                 type: "text",
                 text: funName + paramList
             };
-            const bboxMap = fitBox(
-                textBox, 
-                myBox,
-                CODE_FONT_FAMILY, 
-                "normal",
-                true,
-                textMeasurer,
-                ctx
-            );
-            
+            const bboxMap = fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, ctx);
         } else {
-            //console.log(indent + "myAreaRatio >= 0.5");
-            const outerBox: Box = {
-                type: "container",
-                direction: "horizontal",
-                children: []
-            };
-            const lineNumberBox: Box = {
-                type: "container",
-                direction: "vertical",
-                children: []
-            };
-            outerBox.children.push(lineNumberBox);
-            
-            const codeBox: Box = {
-                type: "container",
-                direction: "vertical",
-                children: []
+            // rendering children
+            const { codeBox, callExprTextBoxes } = getCodeBox(code, firstEntry, currentEntries);
+            const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, ctx);
+
+            let foundChildEnclosingScope;
+            const childAncestry = [myScope, ...ancestry];
+            for (let callExprBox of callExprTextBoxes) {
+                const { expr, box } = callExprBox;
+                const childBBox = bboxMap.get(box);
+                const frameEntries = childEntries[expr.start.line];
+                if (frameEntries) {
+                    const childEnclosingScope = renderScope(
+                        { historyEntries: frameEntries, bbox: childBBox }, childAncestry);
+                    if (childEnclosingScope) {
+                        foundChildEnclosingScope = childEnclosingScope;
+                    }
+                }
             }
-            outerBox.children.push(codeBox);
             
-            
-            const codeLines = code.split("\n");
-            const callExprsBoxes: Array<{ expr: any /* AST node */, box: TextBox }> = [];
-            
-            // Render first line of function definition
-            const stack = firstEntry.stack[firstEntry.stack.length - 1];
-            const funName = stack.funName;
-            const funNode = findFunction(funName);
-            const callExprs = findCallExpressions(funNode);
-            const userDefinedFunctions = findFunctionDefinitions(ast);
-            const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
-            const callExprsUser = callExprs.filter(expr => {
-                return userDefinedFunctionNames.includes(expr.fun_name.value);
-            });
-            const lineNo = funNode.start.line;
-            const line = codeLines[lineNo - 1];
+            if (foundChildEnclosingScope) {
+                return foundChildEnclosingScope;
+            }
+        }
+        
+        if (entirelyContainsViewport(bbox)) {
+            return [myScope, ...ancestry];
+        } else {
+            return null;
+        }
+    }
+    
+    function groupHistoryEntries(entries: HistoryEntry[]) {
+        const currentStackHeight = entries[0].stack.length;
+        const childEntries: { [line: number]: HistoryEntry[] } = {};
+        const currentEntries = [];
+        
+        for (let entry of entries) {
+            if (entry.stack.length === currentStackHeight) {
+                currentEntries.push(entry);
+            } else {
+                const lastEntryThisFrame = currentEntries[currentEntries.length - 1];
+                const lineNo = lastEntryThisFrame.line;
+                if (!childEntries[lineNo]) {
+                    childEntries[lineNo] = [];
+                }
+                childEntries[lineNo].push(entry);
+            }
+        }
+        
+        return {
+            currentEntries,
+            childEntries
+        };
+    }
+    
+    function getCodeBox(code: string, firstEntry, currentEntries: HistoryEntry[]) {
+        // rendering children
+        //console.log(indent + "myAreaRatio >= 0.5");
+        const outerBox: Box = {
+            type: "container",
+            direction: "horizontal",
+            children: []
+        };
+        const lineNumberBox: Box = {
+            type: "container",
+            direction: "vertical",
+            children: []
+        };
+        outerBox.children.push(lineNumberBox);
+        
+        const codeBox: Box = {
+            type: "container",
+            direction: "vertical",
+            children: []
+        }
+        outerBox.children.push(codeBox);
+        
+        
+        const codeLines = code.split("\n");
+        const callExprTextBoxes: Array<{ expr: any /* AST node */, box: Box }> = [];
+        
+        // Render first line of function definition
+        const stack = firstEntry.stack[firstEntry.stack.length - 1];
+        const funName = stack.funName;
+        const funNode = findFunction(funName);
+        const callExprs = findCallExpressions(funNode);
+        const userDefinedFunctions = findFunctionDefinitions(ast);
+        const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
+        const callExprsUser = callExprs.filter(expr => {
+            return userDefinedFunctionNames.includes(expr.fun_name.value);
+        });
+        const lineNo = funNode.start.line;
+        const line = codeLines[lineNo - 1];
+        lineNumberBox.children.push({
+            type: "text",
+            text: String(lineNo)
+        });
+        const codeLine = codeLines[lineNo - 1];
+        codeBox.children.push({
+            type: "text",
+            text: codeLine
+        });
+        
+        // Finds and splits the call expressions in code lines
+        for (let i = 0; i < currentEntries.length; i++) {
+            let outputLine = "";
+            const entry = currentEntries[i];
+            const nextEntry = currentEntries[i + 1];
+            const lineNo = entry.line;
+            if (nextEntry && entry.line === nextEntry.line) {
+                continue;
+            }
             lineNumberBox.children.push({
                 type: "text",
                 text: String(lineNo)
             });
+            
             const codeLine = codeLines[lineNo - 1];
-            codeBox.children.push({
-                type: "text",
-                text: codeLine
+            // TODO: handle multiple call exprs on same line
+            const callExpr = callExprsUser.find(expr => {
+                return expr.start.line === lineNo
             });
-            
-            for (let i = 0; i < entriesThisFrame.length; i++) {
-                let outputLine = "";
-                const entry = entriesThisFrame[i];
-                const nextEntry = entriesThisFrame[i + 1];
-                const lineNo = entry.line;
-                if (nextEntry && entry.line === nextEntry.line) {
-                    continue;
-                }
-                lineNumberBox.children.push({
-                    type: "text",
-                    text: String(lineNo)
+            if (callExpr) {
+                const lineBox = splitCodeLine(codeLine, callExpr);
+                callExprTextBoxes.push({
+                    expr: callExpr,
+                    box: lineBox.children[1]
                 });
-                
-                const codeLine = codeLines[lineNo - 1];
-                // TODO: handle multiple call exprs on same line
-                const callExpr = callExprsUser.find(expr => {
-                    return expr.start.line === lineNo
-                });
-                if (callExpr) {
-                    const firstChunk = codeLine.slice(0, callExpr.start.col);
-                    const secondChunk = codeLine.slice(callExpr.start.col, callExpr.end.col);
-                    const thirdChunk = codeLine.slice(callExpr.end.col);
-                    const callExprBox: TextBox = {
-                        type: "text",
-                        text: secondChunk
-                    };
-                    callExprsBoxes.push({
-                        expr: callExpr,
-                        box: callExprBox
-                    });
-                    const lineBox: Box = {
-                        type: "container",
-                        direction: "horizontal",
-                        children: [
-                            {
-                                type: "text",
-                                text: firstChunk
-                            },
-                            callExprBox,
-                            {
-                                type: "text",
-                                text: thirdChunk
-                            }
-                        ]
-                    };
-                    codeBox.children.push(lineBox);
-                } else {
-                    codeBox.children.push({
-                        type: "text",
-                        text: codeLine
-                    });
-                }
-            }
-            
-        
-            const bboxMap = fitBox(outerBox, myBox, CODE_FONT_FAMILY, "normal", true, textMeasurer, ctx);
-            /*
-            
-            Code trying to implement current scope
-            let newCurrentScope, newCurrentScopeBBox;
-            for (let callExprsBox of callExprsBoxes) {
-                const textBox = callExprsBox.box;
-                const bbox = bboxMap.get(textBox);
-                const containsViewPort = bbox.x <= 0 && bbox.y <= 0 &&
-                    (bbox.width - 1200 >= 0) && (bbox.height - 1200 >= 0);
-                if (containsViewPort) {
-                    newCurrentScope = callExprsBox;
-                    newCurrentScopeBBox = bbox;
-                    break;
-                }
-            }
-            if (newCurrentScope) {
-                console.log("Found sub current scope!", newCurrentScope.box);
+                codeBox.children.push(lineBox);
             } else {
-                console.log("No sub current scope found");
-            }
-            */
-            
-            
-            //console.log(indent + "outerBox", outerBox, "myBox", myBox, "bboxMap", bboxMap);
-            for (let callExprBox of callExprsBoxes) {
-                const { expr, box } = callExprBox;
-                const bbox = bboxMap.get(box);
-                //console.log("second pass render", { expr, box, bbox });
-                const frameEntries = nestExecution[expr.start.line];
-                if (frameEntries) {
-                    //console.log("rendering frame entries!!!");
-                    renderFrameEntries(frameEntries, bbox, level + 1);
-                }
+                codeBox.children.push({
+                    type: "text",
+                    text: codeLine
+                });
             }
         }
+        return {
+            codeBox: outerBox,
+            callExprTextBoxes: callExprTextBoxes
+        };
+    }
+    
+    function splitCodeLine(codeLine: string, callExpr): ContainerBox {
+        const firstChunk = codeLine.slice(0, callExpr.start.col);
+        const secondChunk = codeLine.slice(callExpr.start.col, callExpr.end.col);
+        const thirdChunk = codeLine.slice(callExpr.end.col);
+        const callExprBox: TextBox = {
+            type: "text",
+            text: secondChunk
+        };
+        const lineBox: Box = {
+            type: "container",
+            direction: "horizontal",
+            children: [
+                {
+                    type: "text",
+                    text: firstChunk
+                },
+                callExprBox,
+                {
+                    type: "text",
+                    text: thirdChunk
+                }
+            ]
+        };
+        return lineBox;
+    }
+    
+    function entirelyContainsViewport(bbox) {
+        return bbox.x <= 0 && bbox.y <= 0 &&
+            (bbox.width - 1200 >= 0) && (bbox.height - 1200 >= 0);
     }
     
     function updateLog() {
@@ -453,22 +345,46 @@ async function main() {
     
     function render() {
         updateLog();
-        //console.log("render");
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const box: BoundingBox = {
-            y: 0,
-            x: 0,
-            width: canvas.width,
-            height: canvas.height
-        };
-        const myBox = boxWorldToCanvas(box);
-        //console.log("canvas coordinate", myBox);
+        const currentScope = currentScopeChain[0];
+        const myBox = boxWorldToCanvas(currentScope.bbox);
         ctx.strokeRect(myBox.x, myBox.y, myBox.width, myBox.height);
         
-        renderFrameEntries(history, myBox, 0);
+        const enclosingScopeChain = renderScope({
+            historyEntries: currentScope.historyEntries, 
+            bbox: myBox
+        }, currentScopeChain.slice(1));
+        if (enclosingScopeChain) {
+            currentScopeChain = enclosingScopeChain;
+            //console.log("updating current scope to", currentScopeChain.map(scopeId).join(", "));
+        } else {
+            if (currentScopeChain.length > 1) {
+                currentScopeChain = currentScopeChain.slice(1);
+                //console.log("revert back to", currentScopeChain.map(scopeId).join(", "));
+            } else {
+                currentScopeChain = [{
+                    bbox: {
+                        y: 0,
+                        x: 0,
+                        width: canvas.width,
+                        height: canvas.height
+                    },
+                    historyEntries: history
+                }];
+                //console.log("revert back to main");
+            }
+        }
         
-        //console.log("render complete");
+    }
+    
+    function scopeId(scope: Scope): string {
+        const stack = scope.historyEntries[0].stack;
+        const stackFrame = stack[stack.length - 1];
+        const id = stackFrame.funName + "(" + 
+            Object.keys(stackFrame.parameters).map(key => `${key}=${stackFrame.parameters[key]}`).join(", ") +
+        ")";
+        return id;
     }
     
     function findLine(lineNo) {
@@ -517,6 +433,39 @@ async function main() {
     function getSource(node) {
         return code.slice(node.start.offset, node.end.offset);
     }
+    
+    function pointScreenToCanvas(e: MouseEvent): [number, number] {
+        return [
+            (e.clientX - canvas.offsetLeft - 1) * 2,
+            (e.clientY - canvas.offsetTop - 1) * 2
+        ];
+    }
+    
+    function pointCanvasToWorld(x: number, y: number): [number, number] {
+        return [
+            x / viewport.zoom + viewport.left,
+            y / viewport.zoom + viewport.top
+        ];
+    }
+
+    function boxWorldToCanvas(box: BoundingBox): BoundingBox {
+        return {
+            y: (box.y - viewport.top) * viewport.zoom,
+            x: (box.x - viewport.left) * viewport.zoom,
+            width: box.width * viewport.zoom,
+            height: box.height * viewport.zoom
+        };
+    }
+    
+    function boxCanvasToWorld(box: BoundingBox): BoundingBox {
+        return {
+            y: (box.y / viewport.zoom) + viewport.top,
+            x: (box.x / viewport.zoom) + viewport.left,
+            width: box.width / viewport.zoom,
+            height: box.height / viewport.zoom
+        };
+    }
+    
 }
 
 
