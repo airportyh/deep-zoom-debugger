@@ -10,7 +10,11 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 
 ## Todo
 
+* add line height
+* add text color, color line numbers and variable display differently
+* code clean up: for finding call exprs, do it per line
 * add inlined values display (including return values)
+* smartly avoid render code if box is off screen
 * fix bug of code text sometimes not displaying
 * display the skipped line in a different color
 * debug fib-loops.play
@@ -18,3 +22,4 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 * make it not rewrite the function calls by replacing the arguments with concrete values
 * how to remove jiggling? (artifact of the fit text/fit box algorithms)
 * make it work for multiple call expressions on a single line
+* center text vertically and horizontally (done)

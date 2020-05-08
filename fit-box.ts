@@ -19,8 +19,9 @@ export type Box = TextBox | ContainerBox;
 A text box is a box that contains text. It always has type equal to "text".
 */
 export type TextBox = {
-    type: "text"
-    text: string
+    type: "text",
+    text: string,
+    color?: string
 };
 
 /*
@@ -112,6 +113,7 @@ export function fitBox(
     fontWeight: string,
     fixedWidth: boolean,
     textMeasurer: TextMeasurer,
+    lineHeight: number,
     ctx: CanvasRenderingContext2D
 ) {
     let lowerFontSize: null | number = null;
@@ -130,7 +132,7 @@ export function fitBox(
             size: fontSize,
             family: fontFamily
         });
-        bboxMap = layout(box, { x: bbox.x, y: bbox.y }, fontSize, textMeasurer);
+        bboxMap = layout(box, { x: bbox.x, y: bbox.y }, fontSize, textMeasurer, lineHeight);
         const myBBox = bboxMap.get(box);
         const allFit = myBBox.height <= bbox.height && myBBox.width <= bbox.width;
         
@@ -164,7 +166,16 @@ export function fitBox(
     
     //console.log("font size:", fontSize);
     ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-    render(box, bboxMap, ctx);
+    const resultBBox = bboxMap.get(box);
+    // compare resultBBox to bbox
+    const xOffset = (bbox.width - resultBBox.width) / 2;
+    const yOffset = (bbox.height - resultBBox.height) / 2;
+    for (let aBox of bboxMap.keys()) {
+        const aBBox = bboxMap.get(aBox);
+        aBBox.x += xOffset;
+        aBBox.y += yOffset;
+    }
+    render(box, bboxMap, fontSize, lineHeight, ctx);
     return bboxMap;
 }
 
@@ -177,13 +188,14 @@ export function layout(
     box: Box, 
     offset: Point,
     fontSize: number,
-    textMeasurer: TextMeasurer):
+    textMeasurer: TextMeasurer, 
+    lineHeight: number):
     Map<Box, BoundingBox> {
     if (box.type === "text") {
         
         let width = textMeasurer.measureText(box.text);
         //console.log("measureText:", box.text, fontSize, "=", width);
-        const height = fontSize;
+        const height = fontSize * lineHeight;
         const bbox: BoundingBox = {
             ...offset,
             width: width,
@@ -201,7 +213,9 @@ export function layout(
                     child, 
                     { x: offset.x, y: yOffset }, 
                     fontSize, 
-                    textMeasurer);
+                    textMeasurer,
+                    lineHeight
+                );
                 entries.push(...bboxMap);
                 const childBBox = bboxMap.get(child);
                 let previousYOffset = yOffset;
@@ -231,7 +245,9 @@ export function layout(
                     child, 
                     { x: xOffset, y: offset.y }, 
                     fontSize, 
-                    textMeasurer);
+                    textMeasurer,
+                    lineHeight
+                );
                 entries.push(...bboxMap);
                 const childBBox = bboxMap.get(child);
                 let previousXOffset = xOffset;
@@ -268,19 +284,24 @@ Pre-condition: You set the font property on the canvas context.
 export function render(
     box: Box,
     bBoxMap: Map<Box, BoundingBox>,
+    fontSize: number,
+    lineHeight: number,
     ctx: CanvasRenderingContext2D): void
     {
     if (box.type === "text") {
         const bbox = bBoxMap.get(box);
-        // console.log(`fillText(${box.text}, ${bbox.x}, ${bbox.y}`);
-        ctx.fillText(box.text, bbox.x, bbox.y);
-        strokeBBox(bbox, ctx);
+        ctx.save();
+        if (box.color) {
+            ctx.fillStyle = box.color;
+        }
+        const yOffset = fontSize * ((lineHeight - 1) / 2);
+        ctx.fillText(box.text, bbox.x, bbox.y + yOffset);
+        ctx.restore();
     } else if (box.type === "container") {
         for (let child of box.children) {
-            render(child, bBoxMap, ctx);
+            render(child, bBoxMap, fontSize, lineHeight, ctx);
         }
         const bbox = bBoxMap.get(box);
-        strokeBBox(bbox, ctx);
     } else {
         throw new Error("Not implemented");
     }    

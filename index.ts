@@ -3,9 +3,14 @@ import { parse } from "play-lang/src/parser";
 import { traverse } from "play-lang/src/traverser";
 import { fitBox, Box, BoundingBox, TextBox, ContainerBox, TextMeasurer } from "./fit-box";
 
-const CODE_LINE_HEIGHT = 42;
+const CODE_LINE_HEIGHT = 1.5;
 const CODE_FONT_SIZE = 36;
 const CODE_FONT_FAMILY = "Monaco";
+const LINE_NUMBER_COLOR = "#489dff";
+const CODE_COLOR = "black";
+const VARIABLE_DISPLAY_COLOR = "#f0b155";
+const CANVAS_WIDTH = 2400;
+const CANVAS_HEIGHT = 1200;
 
 type StackFrame = {
     funName: string,
@@ -33,8 +38,8 @@ async function main() {
     log.style.position = "absolute";
     log.style.bottom = "1px";
 
-    canvas.width = 1200;
-    canvas.height = 1200;
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
     canvas.style.border = "1px solid black";
     canvas.style.transform = `scale(0.5) translate(-${canvas.width / 2}px, -${canvas.height / 2}px)`;
 
@@ -141,7 +146,7 @@ async function main() {
         
         const { currentEntries, childEntries } = groupHistoryEntries(entries);
         
-        if (myAreaRatio < 0.5) {
+        if (myAreaRatio < 0.4) {
             // not rendering children
             const stack = firstEntry.stack[firstEntry.stack.length - 1];
             const funName = stack.funName;
@@ -150,11 +155,11 @@ async function main() {
                 type: "text",
                 text: funName + paramList
             };
-            const bboxMap = fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, ctx);
+            const bboxMap = fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
         } else {
             // rendering children
             const { codeBox, callExprTextBoxes } = getCodeBox(code, firstEntry, currentEntries);
-            const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, ctx);
+            const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
 
             let foundChildEnclosingScope;
             const childAncestry = [myScope, ...ancestry];
@@ -226,9 +231,15 @@ async function main() {
             type: "container",
             direction: "vertical",
             children: []
-        }
+        };
         outerBox.children.push(codeBox);
         
+        const variableDisplayBox: Box = {
+            type: "container",
+            direction: "vertical",
+            children: [{ type: "text", text: "" }]
+        };
+        outerBox.children.push(variableDisplayBox);
         
         const codeLines = code.split("\n");
         const callExprTextBoxes: Array<{ expr: any /* AST node */, box: Box }> = [];
@@ -237,8 +248,8 @@ async function main() {
         const stack = firstEntry.stack[firstEntry.stack.length - 1];
         const funName = stack.funName;
         const funNode = findFunction(funName);
-        const callExprs = findCallExpressions(funNode);
-        const userDefinedFunctions = findFunctionDefinitions(ast);
+        const callExprs = findNodesOfType(funNode, "call_expression");
+        const userDefinedFunctions = findNodesOfType(ast, "function_definition");
         const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
         const callExprsUser = callExprs.filter(expr => {
             return userDefinedFunctionNames.includes(expr.fun_name.value);
@@ -247,7 +258,8 @@ async function main() {
         const line = codeLines[lineNo - 1];
         lineNumberBox.children.push({
             type: "text",
-            text: String(lineNo)
+            text: String(lineNo) + "   ",
+            color: LINE_NUMBER_COLOR
         });
         const codeLine = codeLines[lineNo - 1];
         codeBox.children.push({
@@ -266,7 +278,8 @@ async function main() {
             }
             lineNumberBox.children.push({
                 type: "text",
-                text: String(lineNo)
+                text: String(lineNo),
+                color: LINE_NUMBER_COLOR
             });
             
             const codeLine = codeLines[lineNo - 1];
@@ -284,9 +297,38 @@ async function main() {
             } else {
                 codeBox.children.push({
                     type: "text",
-                    text: codeLine
+                    text: codeLine,
+                    color: CODE_COLOR
                 });
             }
+            
+            // assumes one line can only have 1 assignment
+            const assignmentNode = findNodesOfTypeOnLine(funNode, "var_assignment", entry.line)[0];
+            
+            if (assignmentNode) {
+                const varName = assignmentNode.var_name.value;
+                const stackFrame = nextEntry.stack[nextEntry.stack.length - 1];
+                const varValue = stackFrame.variables[varName];
+                variableDisplayBox.children.push({
+                    type: "text",
+                    text: `   ${varName} = ${varValue}`,
+                    color: VARIABLE_DISPLAY_COLOR
+                });
+            } else {
+                const returnStatement = findNodesOfTypeOnLine(funNode, "return_statement", entry.line)[0];
+                if (returnStatement) {
+                    const stackFrame = nextEntry.stack[nextEntry.stack.length - 1];
+                    const varValue = stackFrame.variables["<ret val>"];
+                    variableDisplayBox.children.push({
+                        type: "text",
+                        text: `   <ret val> = ${varValue}`,
+                        color: VARIABLE_DISPLAY_COLOR
+                    });
+                } else {
+                    variableDisplayBox.children.push({ type: "text", text: "" });
+                }
+            }
+            
         }
         return {
             codeBox: outerBox,
@@ -322,7 +364,7 @@ async function main() {
     
     function entirelyContainsViewport(bbox) {
         return bbox.x <= 0 && bbox.y <= 0 &&
-            (bbox.width - 1200 >= 0) && (bbox.height - 1200 >= 0);
+            (bbox.width - CANVAS_WIDTH >= 0) && (bbox.height - CANVAS_HEIGHT >= 0);
     }
     
     function updateLog() {
@@ -410,20 +452,20 @@ async function main() {
         return fun;
     }
     
-    function findCallExpressions(node) {
-        let calls = [];
-        traverse(node, (childNode) => {
-            if (childNode.type === "call_expression") {
-                calls.push(childNode);
-            }
-        });
-        return calls;
-    }
-    
-    function findFunctionDefinitions(node) {
+    function findNodesOfType(node, type) {
         let defs = [];
         traverse(node, (childNode) => {
-            if (childNode.type === "function_definition") {
+            if (childNode.type === type) {
+                defs.push(childNode);
+            }
+        });
+        return defs;
+    }
+    
+    function findNodesOfTypeOnLine(node, type, lineNo) {
+        let defs = [];
+        traverse(node, (childNode) => {
+            if (childNode.type === type && childNode.start.line === lineNo) {
                 defs.push(childNode);
             }
         });
