@@ -56,9 +56,9 @@ async function main() {
     document.body.appendChild(canvas);
     document.body.appendChild(log);
     
-    const code = await fetchText("fib-recurse.play");
+    const code = await fetchText("call_example.play");
     const ast = parse(code);
-    const historyText = await fetchText("fib-recurse.history");
+    const historyText = await fetchText("call_example.history");
     const history: HistoryEntry[] = jsonr.parse(historyText);
     ctx.textBaseline = "top";
     const textMeasurer = new TextMeasurer(ctx, true);
@@ -129,6 +129,9 @@ async function main() {
         const myArea = bbox.width * bbox.height;
         const myAreaRatio = myArea / (canvas.width * canvas.height);
         const firstEntry = entries[0];
+        const stackFrame = firstEntry.stack[firstEntry.stack.length - 1];
+        const funName = stackFrame.funName;
+        const funNode = findFunction(funName);
         const myScope: Scope = {
             bbox: boxCanvasToWorld(bbox),
             historyEntries: entries
@@ -144,7 +147,7 @@ async function main() {
             //"bbox", bbox
         );*/
         
-        const { currentEntries, childEntries } = groupHistoryEntries(entries);
+        const { currentEntries, childEntries } = groupHistoryEntries(funNode, entries);
         
         if (myAreaRatio < 0.4) {
             // not rendering children
@@ -166,7 +169,7 @@ async function main() {
             for (let callExprBox of callExprTextBoxes) {
                 const { expr, box } = callExprBox;
                 const childBBox = bboxMap.get(box);
-                const frameEntries = childEntries[expr.start.line];
+                const frameEntries = childEntries.get(expr);
                 if (frameEntries) {
                     const childEnclosingScope = renderScope(
                         { historyEntries: frameEntries, bbox: childBBox }, childAncestry);
@@ -188,21 +191,33 @@ async function main() {
         }
     }
     
-    function groupHistoryEntries(entries: HistoryEntry[]) {
+    function groupHistoryEntries(funNode, entries: HistoryEntry[]) {
         const currentStackHeight = entries[0].stack.length;
-        const childEntries: { [line: number]: HistoryEntry[] } = {};
+        const childEntries: Map<any, HistoryEntry[]> = new Map();
         const currentEntries = [];
         
+        let currentLine: number = null;
+        let callExprs: any[] = null;
+        let currentCallExprIdx = null;
         for (let entry of entries) {
             if (entry.stack.length === currentStackHeight) {
-                currentEntries.push(entry);
-            } else {
-                const lastEntryThisFrame = currentEntries[currentEntries.length - 1];
-                const lineNo = lastEntryThisFrame.line;
-                if (!childEntries[lineNo]) {
-                    childEntries[lineNo] = [];
+                if (currentLine !== entry.line) {
+                    currentLine = entry.line;
+                    // initialize context for this line
+                    currentEntries.push(entry);
+                    // find call expressions on this line
+                    callExprs = findNodesOfTypeOnLine(funNode, "call_expression", entry.line);
+                    currentCallExprIdx = 0;
+                } else { // currentLine === entry.line
+                    currentCallExprIdx++;
                 }
-                childEntries[lineNo].push(entry);
+            } else {
+                // nested scope execution
+                const callExpr = callExprs[currentCallExprIdx];
+                if (!childEntries.has(callExpr)) {
+                    childEntries.set(callExpr, []);
+                }
+                childEntries.get(callExpr).push(entry);
             }
         }
         
