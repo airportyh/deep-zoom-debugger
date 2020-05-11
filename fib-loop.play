@@ -1,13 +1,14 @@
 def fib(n) [
-    if n == 0 [
-        return 0
+    i = 1
+    fib1 = 1
+    fib2 = 1
+    while i < n [
+        fib_next = fib1 + fib2
+        fib1 = fib2
+        fib2 = fib_next
+        i = i + 1
     ]
-    if n == 1 [
-        return 1
-    ]
-    fib_1 = fib(n - 1)
-    fib_2 = fib(n - 2)
-    return fib_1 + fib_2
+    return fib1
 ]
 
 def main() [

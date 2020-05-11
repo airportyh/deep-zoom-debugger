@@ -10,16 +10,22 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 
 ## Todo
 
-* add line height
-* add text color, color line numbers and variable display differently
-* code clean up: for finding call exprs, do it per line
-* add inlined values display (including return values)
-* smartly avoid render code if box is off screen
-* fix bug of code text sometimes not displaying
-* display the skipped line in a different color
-* debug fib-loops.play
-* loops display
+* display function parameters initial value
+* show return values for call exprs
 * make it not rewrite the function calls by replacing the arguments with concrete values
-* how to remove jiggling? (artifact of the fit text/fit box algorithms)
+* fix bug of bottom code text not displaying when 2 call exprs are at the same level and we are zoomed in to them
+* play with different programs
+* code clean up: for finding call exprs, do it per line
+* optimization: fitbox - straight calculation, no need to do binary search for fixed width fonts
+* optimization: smartly avoid render code if box is off screen
+* implement variable display for composite types (arrays and dictionaries)
 * make it work for multiple call expressions on a single line
+* integrate it into language runtime so can conviniently use it
+* display screenshot next to each line, or visually on a timeline in some way
+* display the skipped lines in a different color??
+* how to remove jiggling? (artifact of the fit text/fit box algorithms) (done)
 * center text vertically and horizontally (done)
+* add line height (done)
+* add text color, color line numbers and variable display differently (done)
+* add inlined values display (including return values) (done)
+* debug fib-loops.play (done)
