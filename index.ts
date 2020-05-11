@@ -158,7 +158,7 @@ async function main() {
             const bboxMap = fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
         } else {
             // rendering children
-            const { codeBox, callExprTextBoxes } = getCodeBox(code, firstEntry, currentEntries);
+            const { codeBox, callExprTextBoxes } = getCodeBox(code, currentEntries);
             const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
 
             let foundChildEnclosingScope;
@@ -212,154 +212,147 @@ async function main() {
         };
     }
     
-    function getCodeBox(code: string, firstEntry, currentEntries: HistoryEntry[]) {
+    function getCodeBox(code: string, currentEntries: HistoryEntry[]) {
         // rendering children
         //console.log(indent + "myAreaRatio >= 0.5");
-        const outerBox: Box = {
-            type: "container",
-            direction: "horizontal",
-            children: []
-        };
-        const lineNumberBox: Box = {
-            type: "container",
-            direction: "vertical",
-            children: []
-        };
-        outerBox.children.push(lineNumberBox);
-        
-        const codeBox: Box = {
-            type: "container",
-            direction: "vertical",
-            children: []
-        };
-        outerBox.children.push(codeBox);
-        
-        const variableDisplayBox: Box = {
-            type: "container",
-            direction: "vertical",
-            children: [{ type: "text", text: "" }]
-        };
-        outerBox.children.push(variableDisplayBox);
-        
         const codeLines = code.split("\n");
-        const callExprTextBoxes: Array<{ expr: any /* AST node */, box: Box }> = [];
-        
-        // Render first line of function definition
-        const stack = firstEntry.stack[firstEntry.stack.length - 1];
-        const funName = stack.funName;
+        const firstEntry = currentEntries[0];
+        const stackFrame = firstEntry.stack[firstEntry.stack.length - 1];
+        const funName = stackFrame.funName;
         const funNode = findFunction(funName);
-        const callExprs = findNodesOfType(funNode, "call_expression");
         const userDefinedFunctions = findNodesOfType(ast, "function_definition");
         const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
-        const callExprsUser = callExprs.filter(expr => {
-            return userDefinedFunctionNames.includes(expr.fun_name.value);
-        });
-        const lineNo = funNode.start.line;
-        const line = codeLines[lineNo - 1];
-        lineNumberBox.children.push({
-            type: "text",
-            text: String(lineNo) + "   ",
-            color: LINE_NUMBER_COLOR
-        });
-        const codeLine = codeLines[lineNo - 1];
-        codeBox.children.push({
-            type: "text",
-            text: codeLine
-        });
+        const lineNumberWidth = 3;
         
-        // Finds and splits the call expressions in code lines
-        for (let i = 0; i < currentEntries.length; i++) {
-            let outputLine = "";
-            const entry = currentEntries[i];
-            const nextEntry = currentEntries[i + 1];
-            const lineNo = entry.line;
-            if (nextEntry && entry.line === nextEntry.line) {
-                continue;
-            }
-            lineNumberBox.children.push({
-                type: "text",
-                text: String(lineNo),
-                color: LINE_NUMBER_COLOR
-            });
-            
-            const codeLine = codeLines[lineNo - 1];
-            // TODO: handle multiple call exprs on same line
-            const callExpr = callExprsUser.find(expr => {
-                return expr.start.line === lineNo
-            });
-            if (callExpr) {
-                const lineBox = splitCodeLine(codeLine, callExpr);
-                callExprTextBoxes.push({
-                    expr: callExpr,
-                    box: lineBox.children[1]
-                });
-                codeBox.children.push(lineBox);
-            } else {
-                codeBox.children.push({
-                    type: "text",
-                    text: codeLine,
-                    color: CODE_COLOR
-                });
-            }
-            
-            // assumes one line can only have 1 assignment
-            const assignmentNode = findNodesOfTypeOnLine(funNode, "var_assignment", entry.line)[0];
-            
-            if (assignmentNode) {
-                const varName = assignmentNode.var_name.value;
-                const stackFrame = nextEntry.stack[nextEntry.stack.length - 1];
-                const varValue = stackFrame.variables[varName];
-                variableDisplayBox.children.push({
-                    type: "text",
-                    text: `   ${varName} = ${varValue}`,
-                    color: VARIABLE_DISPLAY_COLOR
-                });
-            } else {
-                const returnStatement = findNodesOfTypeOnLine(funNode, "return_statement", entry.line)[0];
-                if (returnStatement) {
-                    const stackFrame = nextEntry.stack[nextEntry.stack.length - 1];
-                    const varValue = stackFrame.variables["<ret val>"];
-                    variableDisplayBox.children.push({
-                        type: "text",
-                        text: `   <ret val> = ${varValue}`,
-                        color: VARIABLE_DISPLAY_COLOR
-                    });
-                } else {
-                    variableDisplayBox.children.push({ type: "text", text: "" });
-                }
-            }
-            
-        }
-        return {
-            codeBox: outerBox,
-            callExprTextBoxes: callExprTextBoxes
+        const outerBox: Box = {
+            type: "container",
+            direction: "vertical",
+            children: []
         };
-    }
-    
-    function splitCodeLine(codeLine: string, callExpr): ContainerBox {
-        const firstChunk = codeLine.slice(0, callExpr.start.col);
-        const secondChunk = codeLine.slice(callExpr.start.col, callExpr.end.col);
-        const thirdChunk = codeLine.slice(callExpr.end.col);
-        const callExprBox: TextBox = {
-            type: "text",
-            text: secondChunk
-        };
-        const lineBox: Box = {
+        const callExprTextBoxes: Array<{ expr: any, box: Box }> = [];
+        
+        // layout the function signature
+        const funSigBox: ContainerBox = {
             type: "container",
             direction: "horizontal",
             children: [
                 {
                     type: "text",
-                    text: firstChunk
+                    text: String(funNode.start.line).padEnd(lineNumberWidth) + "  ",
+                    color: LINE_NUMBER_COLOR
                 },
-                callExprBox,
                 {
                     type: "text",
-                    text: thirdChunk
+                    text: codeLines[funNode.start.line - 1],
+                    color: CODE_COLOR
                 }
             ]
         };
-        return lineBox;
+        for (let param of funNode.parameters) {
+            const paramName = param.value;
+            const value = stackFrame.variables[paramName];
+            funSigBox.children.push({
+                type: "text",
+                text: `  ${paramName} = ${value}`,
+                color: VARIABLE_DISPLAY_COLOR
+            });
+        }
+        
+        outerBox.children.push(funSigBox);
+        
+        // Go through current entries and layout the code line by line
+        for (let i = 0; i < currentEntries.length; i++) {
+            let outputLine = "";
+            const entry = currentEntries[i];
+            const nextEntry = currentEntries[i + 1];
+            if (nextEntry && entry.line === nextEntry.line) {
+                continue;
+            }
+            const line = codeLines[entry.line - 1];
+            const lineNumberBox: TextBox = {
+                type: "text",
+                text: String(entry.line).padEnd(lineNumberWidth) + "  ",
+                color: LINE_NUMBER_COLOR
+            };
+            const lineBox: ContainerBox = {
+                type: "container",
+                direction: "horizontal",
+                children: [
+                    lineNumberBox
+                ]
+            };
+            
+            // See if there are callExpr nodes
+            let curpos: number = 0;
+            const callExprNodes = findNodesOfTypeOnLine(funNode, "call_expression", entry.line);
+            for (let callExprNode of callExprNodes) {
+                if (!userDefinedFunctionNames.includes(callExprNode.fun_name.value)) {
+                    continue;
+                }
+                const startIdx = callExprNode.start.col;
+                const endIdx = callExprNode.end.col;
+                const previousCode = line.slice(curpos, startIdx);
+                lineBox.children.push({
+                    type: "text",
+                    text: previousCode,
+                    color: CODE_COLOR
+                });
+                const callExprCode = line.slice(startIdx, endIdx);
+                const callExprTextBox: TextBox = {
+                    type: "text",
+                    text: callExprCode,
+                    color: CODE_COLOR
+                };
+                callExprTextBoxes.push({
+                    expr: callExprNode,
+                    box: callExprTextBox
+                });
+                lineBox.children.push(callExprTextBox);
+                curpos = endIdx;
+            }
+            // wrap up
+            const rest = line.slice(curpos);
+            if (rest.length > 0) {
+                lineBox.children.push({
+                    type: "text",
+                    text: rest,
+                    color: CODE_COLOR
+                });
+            }
+            
+            // Display variable values for assignments
+            const assignmentNode = findNodesOfTypeOnLine(funNode, "var_assignment", entry.line)[0];
+            if (assignmentNode) {
+                const varName = assignmentNode.var_name.value;
+                const nextStackFrame = nextEntry.stack[nextEntry.stack.length - 1];
+                const varValue = nextStackFrame.variables[varName];
+                lineBox.children.push({
+                    type: "text",
+                    text: `  ${varName} = ${varValue}`,
+                    color: VARIABLE_DISPLAY_COLOR
+                });
+            }
+            
+            // Display variable values for return statements
+            const returnStatement = findNodesOfTypeOnLine(funNode, "return_statement", entry.line)[0];
+            if (returnStatement) {
+                const nextStackFrame = nextEntry.stack[nextEntry.stack.length - 1];
+                const varValue = nextStackFrame.variables["<ret val>"];
+                lineBox.children.push({
+                    type: "text",
+                    text: `   <ret val> = ${varValue}`,
+                    color: VARIABLE_DISPLAY_COLOR
+                });
+            }
+            
+            outerBox.children.push(lineBox);
+            
+        }
+        
+        return {
+            codeBox: outerBox,
+            callExprTextBoxes: callExprTextBoxes
+        };
     }
     
     function entirelyContainsViewport(bbox) {
