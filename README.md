@@ -14,6 +14,7 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 * make nested call exprs work
 * make it not rewrite the function calls by replacing the arguments with concrete values
 * fix bug of bottom code text not displaying when 2 call exprs are at the same level and we are zoomed in to them
+* code cleanup: extract some functions is getCodeBox
 * play with different programs
 * optimization: fitbox - straight calculation, no need to do binary search for fixed width fonts
 * optimization: smartly avoid render code if box is off screen
