@@ -10,7 +10,7 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 
 ## Todo
 
-* show return values for call exprs
+* experiment with displaying code call expressions unchanged by show call expression with concrete values on the side
 * make nested call exprs work
 * make it not rewrite the function calls by replacing the arguments with concrete values
 * fix bug of bottom code text not displaying when 2 call exprs are at the same level and we are zoomed in to them
@@ -18,10 +18,11 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 * optimization: fitbox - straight calculation, no need to do binary search for fixed width fonts
 * optimization: smartly avoid render code if box is off screen
 * implement variable display for composite types (arrays and dictionaries)
-* make it work for multiple call expressions on a single line
 * integrate it into language runtime so can conviniently use it
 * display screenshot next to each line, or visually on a timeline in some way
 * display the skipped lines in a different color??
+* show return values for call exprs (done)
+* make it work for multiple call expressions on a single line (done)
 * code clean up: for finding call exprs, do it per line (done)
 * display function parameters initial value (done)
 * how to remove jiggling? (artifact of the fit text/fit box algorithms) (done)

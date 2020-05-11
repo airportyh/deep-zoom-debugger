@@ -56,9 +56,9 @@ async function main() {
     document.body.appendChild(canvas);
     document.body.appendChild(log);
     
-    const code = await fetchText("call_example.play");
+    const code = await fetchText("fib-recurse.play");
     const ast = parse(code);
-    const historyText = await fetchText("call_example.history");
+    const historyText = await fetchText("fib-recurse.history");
     const history: HistoryEntry[] = jsonr.parse(historyText);
     ctx.textBaseline = "top";
     const textMeasurer = new TextMeasurer(ctx, true);
@@ -132,6 +132,8 @@ async function main() {
         const stackFrame = firstEntry.stack[firstEntry.stack.length - 1];
         const funName = stackFrame.funName;
         const funNode = findFunction(funName);
+        const userDefinedFunctions = findNodesOfType(ast, "function_definition");
+        const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
         const myScope: Scope = {
             bbox: boxCanvasToWorld(bbox),
             historyEntries: entries
@@ -147,7 +149,7 @@ async function main() {
             //"bbox", bbox
         );*/
         
-        const { currentEntries, childEntries } = groupHistoryEntries(funNode, entries);
+        const { currentEntries, childEntries } = groupHistoryEntries(funNode, entries, userDefinedFunctionNames);
         
         if (myAreaRatio < 0.4) {
             // not rendering children
@@ -158,10 +160,10 @@ async function main() {
                 type: "text",
                 text: funName + paramList
             };
-            const bboxMap = fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
+            fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
         } else {
             // rendering children
-            const { codeBox, callExprTextBoxes } = getCodeBox(code, currentEntries);
+            const { codeBox, callExprTextBoxes } = getCodeBox(code, currentEntries, childEntries, userDefinedFunctionNames);
             const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
 
             let foundChildEnclosingScope;
@@ -191,7 +193,7 @@ async function main() {
         }
     }
     
-    function groupHistoryEntries(funNode, entries: HistoryEntry[]) {
+    function groupHistoryEntries(funNode, entries: HistoryEntry[], userDefinedFunctionNames: string[]) {
         const currentStackHeight = entries[0].stack.length;
         const childEntries: Map<any, HistoryEntry[]> = new Map();
         const currentEntries = [];
@@ -206,7 +208,8 @@ async function main() {
                     // initialize context for this line
                     currentEntries.push(entry);
                     // find call expressions on this line
-                    callExprs = findNodesOfTypeOnLine(funNode, "call_expression", entry.line);
+                    callExprs = findNodesOfTypeOnLine(funNode, "call_expression", entry.line)
+                        .filter(expr => userDefinedFunctionNames.includes(expr.fun_name.value));
                     currentCallExprIdx = 0;
                 } else { // currentLine === entry.line
                     currentCallExprIdx++;
@@ -227,7 +230,7 @@ async function main() {
         };
     }
     
-    function getCodeBox(code: string, currentEntries: HistoryEntry[]) {
+    function getCodeBox(code: string, currentEntries: HistoryEntry[], childEntries: Map<any, HistoryEntry[]>, userDefinedFunctionNames: string[]) {
         // rendering children
         //console.log(indent + "myAreaRatio >= 0.5");
         const codeLines = code.split("\n");
@@ -235,8 +238,6 @@ async function main() {
         const stackFrame = firstEntry.stack[firstEntry.stack.length - 1];
         const funName = stackFrame.funName;
         const funNode = findFunction(funName);
-        const userDefinedFunctions = findNodesOfType(ast, "function_definition");
-        const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
         const lineNumberWidth = 3;
         
         const outerBox: Box = {
@@ -244,7 +245,7 @@ async function main() {
             direction: "vertical",
             children: []
         };
-        const callExprTextBoxes: Array<{ expr: any, box: Box }> = [];
+        const callExprTextBoxes: Array<{ expr: any, box: TextBox }> = [];
         
         // layout the function signature
         const funSigBox: ContainerBox = {
@@ -335,17 +336,28 @@ async function main() {
                 });
             }
             
+            const valueDisplayStrings: string[] = [];
+            for (let callExprNode of callExprNodes) {
+                const startIdx = callExprNode.start.col;
+                const endIdx = callExprNode.end.col;
+                const callExprCode = line.slice(startIdx, endIdx);
+                const myChildEntries = childEntries.get(callExprNode);
+                if (!myChildEntries) {
+                    continue;
+                }
+                const lastChildEntry = myChildEntries[myChildEntries.length - 1];
+                const lastChildEntryStackFrame = lastChildEntry.stack[lastChildEntry.stack.length - 1];
+                const retVal = lastChildEntryStackFrame.variables["<ret val>"];
+                valueDisplayStrings.push(`${callExprCode} = ${retVal}`);
+            }
+            
             // Display variable values for assignments
             const assignmentNode = findNodesOfTypeOnLine(funNode, "var_assignment", entry.line)[0];
             if (assignmentNode) {
                 const varName = assignmentNode.var_name.value;
                 const nextStackFrame = nextEntry.stack[nextEntry.stack.length - 1];
                 const varValue = nextStackFrame.variables[varName];
-                lineBox.children.push({
-                    type: "text",
-                    text: `  ${varName} = ${varValue}`,
-                    color: VARIABLE_DISPLAY_COLOR
-                });
+                valueDisplayStrings.push(`${varName} = ${varValue}`);
             }
             
             // Display variable values for return statements
@@ -353,14 +365,25 @@ async function main() {
             if (returnStatement) {
                 const nextStackFrame = nextEntry.stack[nextEntry.stack.length - 1];
                 const varValue = nextStackFrame.variables["<ret val>"];
-                lineBox.children.push({
-                    type: "text",
-                    text: `   <ret val> = ${varValue}`,
-                    color: VARIABLE_DISPLAY_COLOR
-                });
+                valueDisplayStrings.push(`<ret val> = ${varValue}`);
             }
             
             outerBox.children.push(lineBox);
+            
+            if (valueDisplayStrings.length > 0) {
+                lineBox.children.push({
+                    type: "text",
+                    text: "  " + valueDisplayStrings[0],
+                    color: VARIABLE_DISPLAY_COLOR
+                });
+                for (let i = 1; i < valueDisplayStrings.length; i++) {
+                    outerBox.children.push({
+                        type: "text",
+                        text: "".padStart(lineNumberWidth + line.length + 4) + valueDisplayStrings[i],
+                        color: VARIABLE_DISPLAY_COLOR
+                    });
+                }
+            }
             
         }
         
