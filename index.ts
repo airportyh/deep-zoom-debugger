@@ -26,7 +26,8 @@ type HistoryEntry = {
 
 type Scope = {
     bbox: BoundingBox,
-    historyEntries: HistoryEntry[]
+    historyEntries: HistoryEntry[],
+    callExprCode: string
 };
 
 async function main() {
@@ -49,8 +50,6 @@ async function main() {
         zoom: 0.5
     };
     
-    let currentScopeChain: Scope[];
-    
     const ctx = canvas.getContext("2d");
 
     document.body.appendChild(canvas);
@@ -60,18 +59,22 @@ async function main() {
     const ast = parse(code);
     const historyText = await fetchText("fib-recurse.history");
     const history: HistoryEntry[] = jsonr.parse(historyText);
-    ctx.textBaseline = "top";
-    const textMeasurer = new TextMeasurer(ctx, true);
     
-    currentScopeChain = [{
+    const mainScope: Scope = {
         bbox: {
             y: 0,
             x: 0,
             width: canvas.width,
             height: canvas.height
         },
-        historyEntries: history
-    }];
+        historyEntries: history,
+        callExprCode: "main()"
+    };
+    
+    ctx.textBaseline = "top";
+    const textMeasurer = new TextMeasurer(ctx, true);
+    
+    let currentScopeChain: Scope[] = [mainScope];
 
     requestRender();
     
@@ -135,8 +138,8 @@ async function main() {
         const userDefinedFunctions = findNodesOfType(ast, "function_definition");
         const userDefinedFunctionNames = userDefinedFunctions.map(fun => fun.name.value);
         const myScope: Scope = {
-            bbox: boxCanvasToWorld(bbox),
-            historyEntries: entries
+            ...scope,
+            bbox: boxCanvasToWorld(bbox)
         };
         
         ctx.clearRect(bbox.x, bbox.y, bbox.width, bbox.height);
@@ -153,12 +156,9 @@ async function main() {
         
         if (myAreaRatio < 0.4) {
             // not rendering children
-            const stack = firstEntry.stack[firstEntry.stack.length - 1];
-            const funName = stack.funName;
-            const paramList = "(" + Object.values(stack.parameters).join(", ") + ")";
             const textBox: TextBox = {
                 type: "text",
-                text: funName + paramList
+                text: scope.callExprCode
             };
             fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
         } else {
@@ -166,7 +166,7 @@ async function main() {
             const { codeBox, callExprTextBoxes } = getCodeBox(code, currentEntries, childEntries, userDefinedFunctionNames);
             const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
 
-            let foundChildEnclosingScope;
+            let foundChildEnclosingScope: Scope[];
             const childAncestry = [myScope, ...ancestry];
             for (let callExprBox of callExprTextBoxes) {
                 const { expr, box } = callExprBox;
@@ -174,7 +174,12 @@ async function main() {
                 const frameEntries = childEntries.get(expr);
                 if (frameEntries) {
                     const childEnclosingScope = renderScope(
-                        { historyEntries: frameEntries, bbox: childBBox }, childAncestry);
+                        {
+                            historyEntries: frameEntries, 
+                            bbox: childBBox,
+                            callExprCode: code.substring(expr.start.offset, expr.end.offset)
+                        }, childAncestry
+                    );
                     if (childEnclosingScope) {
                         foundChildEnclosingScope = childEnclosingScope;
                     }
@@ -278,7 +283,6 @@ async function main() {
         
         // Go through current entries and layout the code line by line
         for (let i = 0; i < currentEntries.length; i++) {
-            let outputLine = "";
             const entry = currentEntries[i];
             const nextEntry = currentEntries[i + 1];
             if (nextEntry && entry.line === nextEntry.line) {
@@ -338,15 +342,20 @@ async function main() {
             
             const valueDisplayStrings: string[] = [];
             for (let callExprNode of callExprNodes) {
-                const startIdx = callExprNode.start.col;
-                const endIdx = callExprNode.end.col;
-                const callExprCode = line.slice(startIdx, endIdx);
                 const myChildEntries = childEntries.get(callExprNode);
                 if (!myChildEntries) {
                     continue;
                 }
                 const lastChildEntry = myChildEntries[myChildEntries.length - 1];
                 const lastChildEntryStackFrame = lastChildEntry.stack[lastChildEntry.stack.length - 1];
+                const funName = lastChildEntryStackFrame.funName;
+                const funDefNode = findNodesOfType(ast, "function_definition").find(node => node.name.value === funName);
+                const parameterList = funDefNode.parameters.map(param => {
+                    const paramName = param.value;
+                    const paramValue = lastChildEntryStackFrame.parameters[paramName];
+                    return paramValue;
+                });
+                const callExprCode = funName + "(" + parameterList + ")";
                 const retVal = lastChildEntryStackFrame.variables["<ret val>"];
                 valueDisplayStrings.push(`${callExprCode} = ${retVal}`);
             }
@@ -425,7 +434,7 @@ async function main() {
         ctx.strokeRect(myBox.x, myBox.y, myBox.width, myBox.height);
         
         const enclosingScopeChain = renderScope({
-            historyEntries: currentScope.historyEntries, 
+            ...currentScope,
             bbox: myBox
         }, currentScopeChain.slice(1));
         if (enclosingScopeChain) {
@@ -436,15 +445,7 @@ async function main() {
                 currentScopeChain = currentScopeChain.slice(1);
                 //console.log("revert back to", currentScopeChain.map(scopeId).join(", "));
             } else {
-                currentScopeChain = [{
-                    bbox: {
-                        y: 0,
-                        x: 0,
-                        width: canvas.width,
-                        height: canvas.height
-                    },
-                    historyEntries: history
-                }];
+                currentScopeChain = [mainScope];
                 //console.log("revert back to main");
             }
         }
