@@ -5,7 +5,9 @@ def fib(n) [
     if n == 1 [
         return 1
     ]
-    return fib(n - 1) + fib(n - 2)
+    a = fib(n - 1)
+    b = fib(n - 2)
+    return a + b
 ]
 
 def main() [

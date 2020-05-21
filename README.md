@@ -10,16 +10,17 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 
 ## Todo
 
+* implement variable display for composite types (arrays and dictionaries) phase 1
 * make nested call exprs work
-* fix bug of bottom code text not displaying when 2 call exprs are at the same level and we are zoomed in to them
-* code cleanup: extract some functions is getCodeBox
-* play with different programs
-* optimization: fitbox - straight calculation, no need to do binary search for fixed width fonts
-* optimization: smartly avoid render code if box is off screen
-* implement variable display for composite types (arrays and dictionaries)
+* code cleanup: extract some functions in getCodeBox
 * integrate it into language runtime so can conviniently use it
+* implement zoomable value display for composite types phase 2
 * display screenshot next to each line, or visually on a timeline in some way
-* display the skipped lines in a different color??
+
+## Done
+* optimization: smartly avoid render code if box is off screen (done)
+* fix bug of bottom code text not displaying when 2 call exprs are at the same level and we are zoomed in to them (done)
+* play with different programs (done)
 * make it not rewrite the function calls by replacing the arguments with concrete values(done)
 * experiment with displaying code call expressions unchanged by show call expression with concrete values on the side(done)
 * show return values for call exprs (done)

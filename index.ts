@@ -4,12 +4,11 @@ import { traverse } from "play-lang/src/traverser";
 import { fitBox, Box, BoundingBox, TextBox, ContainerBox, TextMeasurer } from "./fit-box";
 
 const CODE_LINE_HEIGHT = 1.5;
-const CODE_FONT_SIZE = 36;
 const CODE_FONT_FAMILY = "Monaco";
 const LINE_NUMBER_COLOR = "#489dff";
 const CODE_COLOR = "black";
 const VARIABLE_DISPLAY_COLOR = "#f0b155";
-const CANVAS_WIDTH = 2400;
+const CANVAS_WIDTH = 2000;
 const CANVAS_HEIGHT = 1200;
 
 type StackFrame = {
@@ -36,9 +35,16 @@ async function main() {
     let dragStartY: number;
     const canvas = document.createElement("canvas");
     const log = document.createElement("pre");
+    const renderTimes: number[] = [];
     log.style.position = "absolute";
     log.style.bottom = "1px";
 
+    const visibleBBox = {
+        x: 0,
+        y: 0,
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT
+    };
     canvas.width = CANVAS_WIDTH;
     canvas.height = CANVAS_HEIGHT;
     canvas.style.border = "1px solid black";
@@ -127,6 +133,12 @@ async function main() {
     function renderScope(scope: Scope, ancestry: Scope[]): Scope[] {
         const entries = scope.historyEntries;
         const bbox = scope.bbox;
+        if (bbox.x + bbox.width < 0 ||
+            bbox.y + bbox.height < 0 ||
+            bbox.x > CANVAS_WIDTH ||
+            bbox.y > CANVAS_HEIGHT) {
+            return null;
+        }
         const level = ancestry.length;
         const indent = Array(level + 1).join("  ");
         const myArea = bbox.width * bbox.height;
@@ -146,25 +158,25 @@ async function main() {
         
         /*console.log(
             indent + "renderScope", 
-            level,
             entries.length, 
             scopeId(myScope),
-            //"bbox", bbox
         );*/
         
         const { currentEntries, childEntries } = groupHistoryEntries(funNode, entries, userDefinedFunctionNames);
         
         if (myAreaRatio < 0.4) {
             // not rendering children
+            //console.log(indent + "not rendering children");
             const textBox: TextBox = {
                 type: "text",
                 text: scope.callExprCode
             };
-            fitBox(textBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
+            fitBox(textBox, bbox, visibleBBox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
         } else {
             // rendering children
+            //console.log(indent + "is rendering children");
             const { codeBox, callExprTextBoxes } = getCodeBox(code, currentEntries, childEntries, userDefinedFunctionNames);
-            const bboxMap = fitBox(codeBox, bbox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
+            const bboxMap = fitBox(codeBox, bbox, visibleBBox, CODE_FONT_FAMILY, "normal", true, textMeasurer, CODE_LINE_HEIGHT, ctx);
 
             let foundChildEnclosingScope: Scope[];
             const childAncestry = [myScope, ...ancestry];
@@ -401,12 +413,21 @@ async function main() {
             callExprTextBoxes: callExprTextBoxes
         };
     }
+    /*
+    function displayRenderTimeStats() {
+        const sum = renderTimes.reduce((sum, curr) => sum + curr, 0);
+        const average = sum / renderTimes.length;
+        const min = Math.min(...renderTimes);
+        const max = Math.max(...renderTimes);
+        console.log("render times", "avg:", average.toFixed(1), "min:", min.toFixed(1), "max:", max.toFixed(1));
+    }*/
     
     function entirelyContainsViewport(bbox) {
         return bbox.x <= 0 && bbox.y <= 0 &&
-            (bbox.width - CANVAS_WIDTH >= 0) && (bbox.height - CANVAS_HEIGHT >= 0);
+            (bbox.x + bbox.width > CANVAS_WIDTH) && 
+            (bbox.y + bbox.height > CANVAS_HEIGHT);
     }
-    
+    /*
     function updateLog() {
         return;
         const width = canvas.width / viewport.zoom;
@@ -424,9 +445,10 @@ async function main() {
         
         log.innerHTML = display;
     }
+    */
     
     function render() {
-        updateLog();
+        const start = performance.now();
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const currentScope = currentScopeChain[0];
@@ -449,7 +471,8 @@ async function main() {
                 //console.log("revert back to main");
             }
         }
-        
+        const end = performance.now();
+        renderTimes.push(end - start);
     }
     
     function scopeId(scope: Scope): string {

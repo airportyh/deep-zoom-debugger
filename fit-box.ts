@@ -98,8 +98,41 @@ export class TextMeasurer {
         }
     }
 }
+/*
+const layoutSearchTimes: number[] = [];
+const layoutSearchTries: number[] = [];
+const renderTimes: number[] = [];
 
+function displayLayoutSearchTimeStats() {
+    const sum = layoutSearchTimes.reduce((sum, curr) => sum + curr, 0);
+    const average = sum / layoutSearchTimes.length;
+    const min = Math.min(...layoutSearchTimes);
+    const max = Math.max(...layoutSearchTimes);
+    console.log("layout search times", "avg:", average.toFixed(1), "min:", min.toFixed(1), "max:", max.toFixed(1));
+}
 
+function displayLayoutSearchTriesStats() {
+    const sum = layoutSearchTries.reduce((sum, curr) => sum + curr, 0);
+    const average = sum / layoutSearchTries.length;
+    const min = Math.min(...layoutSearchTries);
+    const max = Math.max(...layoutSearchTries);
+    console.log("layout search tries", "avg:", average.toFixed(1), "min:", min.toFixed(1), "max:", max.toFixed(1));
+}
+
+function displayRenderTimeStats() {
+    const sum = renderTimes.reduce((sum, curr) => sum + curr, 0);
+    const average = sum / renderTimes.length;
+    const min = Math.min(...renderTimes);
+    const max = Math.max(...renderTimes);
+    console.log("fitBox render times", "avg:", average.toFixed(1), "min:", min.toFixed(1), "max:", max.toFixed(1));
+}
+
+setInterval(() => {
+    displayLayoutSearchTimeStats();
+    displayLayoutSearchTriesStats();
+    displayRenderTimeStats();
+}, 5000);
+*/
 /*
 Entry point of the fit box algorithm. Given a box to calculate the layout for,
 bounding box to fit the box within, a specificed font family and font weight,
@@ -109,6 +142,7 @@ to fit into the provided bounding box, and then it will render the box.
 export function fitBox(
     box: Box,
     bbox: BoundingBox,
+    visibleBox: BoundingBox,
     fontFamily: string,
     fontWeight: string,
     fixedWidth: boolean,
@@ -119,7 +153,6 @@ export function fitBox(
     let lowerFontSize: null | number = null;
     let upperFontSize: null | number = null;
     let fontSize = 5;
-    let height: number, width: number;
     let bboxMap;
     ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
     while (true) {
@@ -164,6 +197,8 @@ export function fitBox(
         }
     }
     
+    
+    
     //console.log("font size:", fontSize);
     ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
     const resultBBox = bboxMap.get(box);
@@ -175,7 +210,7 @@ export function fitBox(
         aBBox.x += xOffset;
         aBBox.y += yOffset;
     }
-    render(box, bboxMap, fontSize, lineHeight, ctx);
+    render(box, bboxMap, visibleBox, fontSize, lineHeight, ctx);
     return bboxMap;
 }
 
@@ -284,24 +319,31 @@ Pre-condition: You set the font property on the canvas context.
 export function render(
     box: Box,
     bBoxMap: Map<Box, BoundingBox>,
+    visibleBox: BoundingBox,
     fontSize: number,
     lineHeight: number,
     ctx: CanvasRenderingContext2D): void
     {
+    const mybbox = bBoxMap.get(box);
+    if (mybbox.x + mybbox.width < visibleBox.x ||
+        mybbox.y + mybbox.height < visibleBox.y ||
+        mybbox.x > visibleBox.width ||
+        mybbox.y > visibleBox.height) {
+        return;
+    }
     if (box.type === "text") {
-        const bbox = bBoxMap.get(box);
+        
         ctx.save();
         if (box.color) {
             ctx.fillStyle = box.color;
         }
         const yOffset = fontSize * ((lineHeight - 1) / 2);
-        ctx.fillText(box.text, bbox.x, bbox.y + yOffset);
+        ctx.fillText(box.text, mybbox.x, mybbox.y + yOffset);
         ctx.restore();
     } else if (box.type === "container") {
         for (let child of box.children) {
-            render(child, bBoxMap, fontSize, lineHeight, ctx);
+            render(child, bBoxMap, visibleBox, fontSize, lineHeight, ctx);
         }
-        const bbox = bBoxMap.get(box);
     } else {
         throw new Error("Not implemented");
     }    
