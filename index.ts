@@ -8,8 +8,8 @@ const CODE_FONT_FAMILY = "Monaco";
 const LINE_NUMBER_COLOR = "#489dff";
 const CODE_COLOR = "black";
 const VARIABLE_DISPLAY_COLOR = "#f0b155";
-const CANVAS_WIDTH = 2000;
-const CANVAS_HEIGHT = 1200;
+const CANVAS_WIDTH = window.innerWidth * 2;
+const CANVAS_HEIGHT = window.innerHeight * 2;
 
 type StackFrame = {
     funName: string,
@@ -30,6 +30,8 @@ type Scope = {
 };
 
 async function main() {
+    document.body.style.margin = "0";
+    document.body.style.padding = "0";
     let dragging = false;
     let dragStartX: number;
     let dragStartY: number;
@@ -61,9 +63,9 @@ async function main() {
     document.body.appendChild(canvas);
     document.body.appendChild(log);
     
-    const code = await fetchText("fib-recurse.play");
+    const code = await fetchText("arrays-dicts.play");
     const ast = parse(code);
-    const historyText = await fetchText("fib-recurse.history");
+    const historyText = await fetchText("arrays-dicts.history");
     const history: HistoryEntry[] = jsonr.parse(historyText);
     
     const mainScope: Scope = {
@@ -378,7 +380,19 @@ async function main() {
                 const varName = assignmentNode.var_name.value;
                 const nextStackFrame = nextEntry.stack[nextEntry.stack.length - 1];
                 const varValue = nextStackFrame.variables[varName];
-                valueDisplayStrings.push(`${varName} = ${varValue}`);
+                const varType = getVarType(funNode, varName);
+                const varValueDisplay = getVarValueDisplay(varValue, varType, nextEntry);
+                valueDisplayStrings.push(`${varName} = ${varValueDisplay}`);
+            }
+            
+            const declarationNode = findNodesOfTypeOnLine(funNode, "var_declaration", entry.line)[0];
+            if (declarationNode) {
+                const varName = declarationNode.var_name.value;
+                const nextStackFrame = nextEntry.stack[nextEntry.stack.length - 1];
+                const varValue = nextStackFrame.variables[varName];
+                const varType = declarationNode.type_tag.value;
+                const varValueDisplay = getVarValueDisplay(varValue, varType, nextEntry);
+                valueDisplayStrings.push(`${varName} = ${varValueDisplay}`);
             }
             
             // Display variable values for return statements
@@ -412,6 +426,29 @@ async function main() {
             codeBox: outerBox,
             callExprTextBoxes: callExprTextBoxes
         };
+    }
+    
+    function getVarType(funNode, varName: string): string | null {
+        const node = findNodes(funNode, (node) => {
+            return node.type === "var_declaration" && node.var_name.value === varName;
+        })[0];
+        if (node) {
+            return node.type_tag.value;
+        } else {
+            return null;
+        }
+    }
+    
+    function getVarValueDisplay(varValue: any, varType: string | null, entry: HistoryEntry): string {
+        let varValueDisplay = varValue;
+        if (typeof varValue === "string") {
+            varValueDisplay = '"' + varValue + '"';
+        } else if (varType === "dict") {
+            varValueDisplay = JSON.stringify(entry.heap[varValue]);
+        } else if (varType === "array") {
+            varValueDisplay = JSON.stringify(entry.heap[varValue]);
+        }
+        return varValueDisplay;
     }
     /*
     function displayRenderTimeStats() {
@@ -521,6 +558,16 @@ async function main() {
         let defs = [];
         traverse(node, (childNode) => {
             if (childNode.type === type && childNode.start.line === lineNo) {
+                defs.push(childNode);
+            }
+        });
+        return defs;
+    }
+    
+    function findNodes(node, match) {
+        let defs = [];
+        traverse(node, (childNode) => {
+            if (match(childNode)) {
                 defs.push(childNode);
             }
         });

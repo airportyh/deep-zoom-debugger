@@ -10,14 +10,20 @@ Also see the video [Google-Earth-Like Zooming File Explorer](https://www.youtube
 
 ## Todo
 
-* implement variable display for composite types (arrays and dictionaries) phase 1
+* implement zoomable value display for composite types phase 2
+    * add feature to fit box to draw box outlines
+    * allow nested arrays / dictionaries to be zoomable
+* integrate it into language runtime so can conviniently use it
 * make nested call exprs work
 * code cleanup: extract some functions in getCodeBox
-* integrate it into language runtime so can conviniently use it
-* implement zoomable value display for composite types phase 2
 * display screenshot next to each line, or visually on a timeline in some way
+* add a type checker to play lang, which
+    * enforces assignment to only allow matching typed values
+    * enforces that assignments to a variable must come after its declaration
+    * enforces that there may only be one declaration
 
 ## Done
+* implement variable display for composite types (arrays and dictionaries) phase 1 (done)
 * optimization: smartly avoid render code if box is off screen (done)
 * fix bug of bottom code text not displaying when 2 call exprs are at the same level and we are zoomed in to them (done)
 * play with different programs (done)
